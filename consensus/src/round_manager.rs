@@ -478,6 +478,21 @@ impl RoundManager {
 
         let block_time_since_epoch = Duration::from_micros(proposal.timestamp_usecs());
 
+        // If the timestamp is too far in the future, we log it as a security issue
+        if let Some(time_to_deadline) =
+            block_time_since_epoch.checked_sub(self.round_state.current_round_deadline())
+        {
+            // We can say that "too far" means more than 5 rounds ahead
+            if time_to_deadline > self.round_state.get_time_until_round(5) {
+                send_struct_log!(
+                    security_log(security_events::INVALID_CONSENSUS_PROPOSAL_TIME)
+                        .data("proposer", proposal.author())
+                        .data("proposal", proposal.id())
+                        .data("proposal_timestamp", block_time_since_epoch)
+                );
+            }
+        }
+
         ensure!(
             block_time_since_epoch < self.round_state.current_round_deadline(),
             "[RoundManager] Waiting until proposal block timestamp usecs {:?} \

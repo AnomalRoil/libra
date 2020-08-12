@@ -287,8 +287,8 @@ impl RoundState {
         timeout
     }
 
-    /// Setup the current round deadline and return the duration of the current round
-    fn setup_deadline(&mut self) -> Duration {
+    /// Get the time interval at the offset after the round index after committed round
+    pub (crate) fn get_time_until_round(&self, offset: usize) -> Duration {
         let round_index_after_committed_round = {
             if self.highest_committed_round == 0 {
                 // Genesis doesn't require the 3-chain rule for commit, hence start the index at
@@ -300,9 +300,13 @@ impl RoundState {
                 self.current_round - self.highest_committed_round - 3
             }
         } as usize;
-        let timeout = self
-            .time_interval
-            .get_round_duration(round_index_after_committed_round);
+        self.time_interval
+            .get_round_duration(round_index_after_committed_round + offset)
+    }
+
+    /// Setup the current round deadline and return the duration of the current round
+    fn setup_deadline(&mut self) -> Duration {
+        let timeout = self.get_time_until_round(0);
         let now = self.time_service.get_current_timestamp();
         debug!(
             "{:?} passed since the previous deadline.",

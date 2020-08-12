@@ -48,6 +48,9 @@ pub mod security_events {
     /// Consensus received an invalid proposal
     pub const INVALID_CONSENSUS_PROPOSAL: &str = "InvalidConsensusProposal";
 
+    /// Consensus received a proposal that is too far in the future
+    pub const INVALID_CONSENSUS_PROPOSAL_TIME: &str = "InvalidConsensusProposalTime";
+
     /// Consensus received an invalid vote
     pub const INVALID_CONSENSUS_VOTE: &str = "InvalidConsensusVote";
 
