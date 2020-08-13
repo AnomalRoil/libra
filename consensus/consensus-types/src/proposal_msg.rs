@@ -5,7 +5,10 @@ use crate::{block::Block, common::Author, sync_info::SyncInfo};
 use anyhow::{ensure, format_err, Context, Result};
 use libra_types::validator_verifier::ValidatorVerifier;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{
+    fmt,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 /// ProposalMsg contains the required information for the proposer election protocol to make its
 /// choice (typically depends on round and proposer info).
@@ -70,6 +73,16 @@ impl ProposalMsg {
         ensure!(
             self.proposal.author().is_some(),
             "Proposal {} does not define an author",
+            self.proposal
+        );
+
+        let current_ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Current time is before the UNIX_EPOCH!");
+        const DELTA: u64 = 600_000_000;
+        ensure!(
+            self.proposal.timestamp_usecs() > current_ts.as_micros() as u64 - DELTA,
+            "Proposal {} has not been received within delta time",
             self.proposal
         );
         Ok(())
