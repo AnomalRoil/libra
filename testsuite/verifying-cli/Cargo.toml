@@ -1,0 +1,12 @@
+[package]
+authors = ["Yolan Romailler <yromailler@fb.com>"]
+edition = "2018"
+name = "verifying-cli"
+version = "0.1.0"
+
+[dependencies]
+structopt = "*"
+chrono = "0.4.15"
+
+libra-types = { path = "../../types", version = "0.1.0" }
+cli = { path = "../cli", version = "0.1.0" }

@@ -275,12 +275,12 @@ impl LibraClient {
     }
 
     /// LedgerInfo corresponding to the latest epoch change.
-    pub(crate) fn latest_epoch_change_li(&self) -> Option<&LedgerInfoWithSignatures> {
+    pub fn latest_epoch_change_li(&self) -> Option<&LedgerInfoWithSignatures> {
         self.latest_epoch_change_li.as_ref()
     }
 
     /// Latest trusted state
-    pub(crate) fn trusted_state(&self) -> TrustedState {
+    pub fn trusted_state(&self) -> TrustedState {
         self.trusted_state.clone()
     }
 
