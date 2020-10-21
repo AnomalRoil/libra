@@ -9,7 +9,10 @@ use libra_types::{
     access_path::AccessPath,
     account_address::AccountAddress,
     account_config::coin1_tmp_tag,
-    transaction::{ChangeSet, Transaction, TransactionPayload, WriteSetPayload},
+    epoch_change::EpochChangeProof,
+    ledger_info::LedgerInfoWithSignatures,
+    proof::TransactionAccumulatorRangeProof,
+    transaction::{ChangeSet, Transaction, TransactionInfo, TransactionPayload, WriteSetPayload},
     write_set::{WriteOp, WriteSet, WriteSetMut},
 };
 use transaction_builder_generated::stdlib;
@@ -48,7 +51,7 @@ fn create_test_cases() -> Vec<Test> {
                 assert_eq!(
                     resp.result.unwrap(),
                     json!([
-                      {
+                        {
                         "burn_events_key": "06000000000000000000000000000000000000000a550c18",
                         "cancel_burn_events_key": "08000000000000000000000000000000000000000a550c18",
                         "code": "Coin1",
@@ -58,8 +61,8 @@ fn create_test_cases() -> Vec<Test> {
                         "preburn_events_key": "07000000000000000000000000000000000000000a550c18",
                         "scaling_factor": 1000000,
                         "to_lbr_exchange_rate": 1.0,
-                      },
-                      {
+                        },
+                        {
                         "burn_events_key": "0b000000000000000000000000000000000000000a550c18",
                         "cancel_burn_events_key": "0d000000000000000000000000000000000000000a550c18",
                         "code": "LBR",
@@ -69,7 +72,7 @@ fn create_test_cases() -> Vec<Test> {
                         "preburn_events_key": "0c000000000000000000000000000000000000000a550c18",
                         "scaling_factor": 1000000,
                         "to_lbr_exchange_rate": 1.0
-                      }
+                        }
                     ])
                 )
             },
@@ -752,6 +755,74 @@ fn create_test_cases() -> Vec<Test> {
             },
         },
         Test {
+            name: "get_transactions_with_proofs",
+            run: |env: &mut testing::Env| {
+                let resp = env.send("get_metadata", json!([]));
+                for base_version in 0..resp.libra_ledger_version {
+                    let limit = 5;
+                    let response = env.send("get_transactions_with_proofs", json!([base_version, limit]));
+                    let data = response.result.unwrap();
+                    let proofs = data["proofs"].as_object().unwrap();
+
+                    // We need to know the first transaction version to verify the proofs
+                    let first_tx = data["first_transaction_version"].as_u64();
+                    assert_eq!(base_version, first_tx.unwrap());
+
+                    // The actual proofs
+                    let raw_hex_li = proofs["ledger_info_to_transaction_infos_proof"].as_str().unwrap();
+                    let li_to_tip:TransactionAccumulatorRangeProof = lcs::from_bytes(&hex::decode(&raw_hex_li).unwrap()).unwrap();
+
+                    let raw_hex_txs = proofs["transaction_infos"].as_str().unwrap();
+                    let txs_infos:Vec<TransactionInfo> = lcs::from_bytes(&hex::decode(&raw_hex_txs).unwrap()).unwrap();
+                    let hashes: Vec<_> = txs_infos
+                    .iter()
+                    .map(CryptoHash::hash)
+                    .collect();
+                    assert!(!hashes.is_empty());
+
+                    // We must check the transactions we got correspond to the hashes in the proofs
+                    let raw_blobs = data["serialized_transactions"].as_array().unwrap();
+                    assert!(!raw_blobs.is_empty());
+                    let actual_txs:Vec<Transaction>= raw_blobs.iter().map(|tx| {
+                        lcs::from_bytes(&hex::decode(&tx.as_str().unwrap()).unwrap()).unwrap()
+                    }).collect();
+                    assert!(!actual_txs.is_empty());
+                    assert_eq!(txs_infos.len(), actual_txs.len());
+                    for (index, tx) in actual_txs.iter().enumerate() {
+                        // Notice we need to actually hash the transaction to be sure its hash is correct
+                        assert_eq!(tx.hash(), txs_infos[index].transaction_hash());
+                    }
+
+                    // We compare our results with the non-veryfing API for the test
+                    let resp_tx = env.send("get_transactions", json!([base_version, txs_infos.len(), false]));
+                    let no_proof_txns = resp_tx.result.unwrap();
+                    assert!(!no_proof_txns.as_array().unwrap().is_empty());
+                    assert_eq!(no_proof_txns.as_array().unwrap().len(), actual_txs.len());
+                    for (index, tx) in no_proof_txns.as_array().unwrap().iter().enumerate() {
+                        assert_eq!(tx["hash"].as_str().unwrap(), actual_txs[index].hash().to_hex());
+                    }
+
+                    // We need to get the details required to verify the proof
+                    let li_raw = data["ledger_info"].as_str().unwrap();
+                    let li:LedgerInfoWithSignatures = lcs::from_bytes(&hex::decode(&li_raw).unwrap()).unwrap();
+                    let expected_hash = li.ledger_info().transaction_accumulator_hash();
+
+                    // We want to verify the signatures of the LedgerInfo to be sure it's valid, but
+                    // since we don't have a local state with the set of validators unlike the client,
+                    // we need to find a workaround to get the validator set. This works since it's a test
+                    // and the validator set is not changing, but it wouldn't work in practice.
+                    let state_data = env.send("get_state_proof", json!([base_version])).result.unwrap();
+                    let ep_cp = state_data["epoch_change_proof"].as_str().unwrap();
+                    let epoch_proofs:EpochChangeProof = lcs::from_bytes(&hex::decode(&ep_cp).unwrap()).unwrap();
+                    let latest_epoch = epoch_proofs.ledger_info_with_sigs.first().unwrap();
+                    assert!(li.verify_signatures(&latest_epoch.ledger_info().next_epoch_state().unwrap().verifier).is_ok());
+
+                    // and we eventually verify the proofs for the transactions
+                    assert!(li_to_tip.verify(expected_hash, first_tx, &hashes).is_ok());
+                }
+            },
+        },
+        Test {
             name: "get_account_transactions without event",
             run: |env: &mut testing::Env| {
                 let sender = &env.vasps[0].children[0];
@@ -796,8 +867,8 @@ fn create_test_cases() -> Vec<Test> {
                 assert_eq!(metadata["module_publishing_allowed"], true);
             },
         },
-        // no test after this one, as your scripts may not in allow list.
-        // add test before above test
+    // no test after this one, as your scripts may not in allow list.
+    // add test before above test
     ]
 }
 

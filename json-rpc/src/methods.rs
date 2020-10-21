@@ -6,7 +6,8 @@ use crate::{
     errors::JsonRpcError,
     views::{
         AccountStateWithProofView, AccountView, BytesView, CurrencyInfoView, EventView,
-        MetadataView, StateProofView, TransactionView,
+        MetadataView, StateProofView, TransactionView, TransactionsProofsView,
+        TransactionsWithProofsView,
     },
 };
 use anyhow::{ensure, format_err, Error, Result};
@@ -390,6 +391,52 @@ async fn get_transactions(
     Ok(result)
 }
 
+/// Returns transactions by range with proofs
+async fn get_transactions_with_proofs(
+    service: JsonRpcService,
+    request: JsonRpcRequest,
+) -> Result<Option<TransactionsWithProofsView>> {
+    let start_version: u64 = request.parse_param(0, "start_version")?;
+    let limit: u64 = request.parse_param(1, "limit")?;
+
+    // Notice limit is a u16 normally, but some APIs require u64 below
+    service.validate_page_size_limit(
+        limit
+            .try_into()
+            .expect("Unexpected usize overflow by limit"),
+    )?;
+
+    if start_version > request.version() {
+        return Ok(None);
+    }
+
+    // We do not fetch events since they don't come with proofs.
+    let txs = service
+        .db
+        .get_transactions(start_version, limit, request.version(), false)?;
+
+    let mut blobs = vec![];
+    for t in txs.transactions.iter() {
+        let bv = lcs::to_bytes(t)?;
+        blobs.push(BytesView::from(bv));
+    }
+
+    let first_txn_version = txs.first_transaction_version;
+
+    let (proofs, tx_info) = txs.proof.unpack();
+
+    // In order to verify the proofs we also need to know the accumulator hash at the same moment
+    Ok(Some(TransactionsWithProofsView {
+        first_transaction_version: first_txn_version,
+        serialized_transactions: blobs,
+        ledger_info: BytesView::from(&lcs::to_bytes(&request.ledger_info)?),
+        proofs: TransactionsProofsView {
+            ledger_info_to_transaction_infos_proof: BytesView::from(&lcs::to_bytes(&proofs)?),
+            transaction_infos: BytesView::from(&lcs::to_bytes(&tx_info)?),
+        },
+    }))
+}
+
 /// Returns account transaction by account and sequence_number
 async fn get_account_transaction(
     service: JsonRpcService,
@@ -607,7 +654,9 @@ pub(crate) fn build_registry() -> RpcRegistry {
     );
     register_rpc_method!(registry, "get_events", get_events, 3, 0);
     register_rpc_method!(registry, "get_currencies", get_currencies, 0, 0);
+    register_rpc_method!(registry, "get_network_status", get_network_status, 0, 0);
 
+    // Proof APIs
     register_rpc_method!(registry, "get_state_proof", get_state_proof, 1, 0);
     register_rpc_method!(
         registry,
@@ -616,7 +665,13 @@ pub(crate) fn build_registry() -> RpcRegistry {
         3,
         0
     );
-    register_rpc_method!(registry, "get_network_status", get_network_status, 0, 0);
+    register_rpc_method!(
+        registry,
+        "get_transactions_with_proofs",
+        get_transactions_with_proofs,
+        2,
+        0
+    );
 
     registry
 }

@@ -3,7 +3,7 @@
 
 use crate::views::{
     AccountStateWithProofView, AccountView, CurrencyInfoView, EventView, MetadataView,
-    StateProofView, TransactionView,
+    StateProofView, TransactionView, TransactionsWithProofsView,
 };
 use anyhow::{ensure, format_err, Error, Result};
 
@@ -18,6 +18,7 @@ pub enum JsonRpcResponse {
     StateProofResponse(StateProofView),
     AccountTransactionResponse(Option<TransactionView>),
     TransactionsResponse(Vec<TransactionView>),
+    TransactionsWithProofsResponse(TransactionsWithProofsView),
     EventsResponse(Vec<EventView>),
     MetadataViewResponse(MetadataView),
     CurrenciesResponse(Vec<CurrencyInfoView>),
@@ -88,6 +89,10 @@ impl TryFrom<(String, Value)> for JsonRpcResponse {
             "get_transactions" => {
                 let txns: Vec<TransactionView> = serde_json::from_value(value)?;
                 Ok(JsonRpcResponse::TransactionsResponse(txns))
+            }
+            "get_transactions_with_proofs" => {
+                let txns: TransactionsWithProofsView = serde_json::from_value(value)?;
+                Ok(JsonRpcResponse::TransactionsWithProofsResponse(txns))
             }
             "get_network_status" => {
                 let connected_peers_count: Number = serde_json::from_value(value)?;
@@ -191,6 +196,16 @@ impl ResponseAsView for StateProofView {
 impl ResponseAsView for AccountStateWithProofView {
     fn from_response(response: JsonRpcResponse) -> Result<Self> {
         if let JsonRpcResponse::AccountStateWithProofResponse(resp) = response {
+            Ok(resp)
+        } else {
+            Self::unexpected_response_error::<Self>(response)
+        }
+    }
+}
+
+impl ResponseAsView for TransactionsWithProofsView {
+    fn from_response(response: JsonRpcResponse) -> Result<Self> {
+        if let JsonRpcResponse::TransactionsWithProofsResponse(resp) = response {
             Ok(resp)
         } else {
             Self::unexpected_response_error::<Self>(response)

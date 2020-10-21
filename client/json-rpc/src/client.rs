@@ -71,6 +71,13 @@ impl JsonRpcBatch {
         );
     }
 
+    pub fn add_get_transactions_with_proofs_request(&mut self, start_version: u64, limit: u64) {
+        self.add_request(
+            "get_transactions_with_proofs".to_string(),
+            vec![json!(start_version), json!(limit)],
+        );
+    }
+
     pub fn add_get_account_transaction_request(
         &mut self,
         account: AccountAddress,

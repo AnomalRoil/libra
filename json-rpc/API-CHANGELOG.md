@@ -12,7 +12,9 @@ Please add the API change in the following format:
 - <describle another change of the API>
 
 ```
+# 2020-10-22 Add a `get_transactions_with_proofs` API
 
+This allows to create verifying clients that do not need to blindly trust the fullnode they connect to.
 
 ## 2020-10-07 Add `libra_version` field to `get_metadata` response
 
